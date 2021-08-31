@@ -1,3 +1,5 @@
+AWS Lambda in GO for S3 Bucket Copy
+
 install dependencies:
     go get -u github.com/aws/aws-sdk-go
     go get github.com/aws/aws-lambda-go/lambda
