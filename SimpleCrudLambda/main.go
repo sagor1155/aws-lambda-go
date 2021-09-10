@@ -11,7 +11,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	// "github.com/aws/aws-lambda-go/lambdacontext"
+	"github.com/aws/aws-lambda-go/lambdacontext"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
 
@@ -38,8 +38,7 @@ func init() {
 
 func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// print context info
-	// lc, _ := lambdacontext.FromContext(ctx)
-	// fmt.Println("Context:", lc.Identity.CognitoIdentityPoolID)
+	fmt.Println("Lambda Invoked: ", lambdacontext.FunctionName)
 
 	// api path
 	healthPath := "/health"
@@ -47,8 +46,8 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 	productsPath := "/products"
 
 	// get table name from environment variable
-	// tableName := os.Getenv("TABLE_NAME")
-	// fmt.Println("Table name: ", tableName)
+	tableName := os.Getenv("TABLE_NAME")
+	fmt.Println("Table name: ", tableName)
 
 	var response events.APIGatewayProxyResponse
 
@@ -57,9 +56,11 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 		fmt.Println("GET: healthpath")
 		response = buildResponse(200, "GET: healthpath")
 
+
 	case request.HTTPMethod == "GET" && request.Path == productsPath:
 		fmt.Println("GET: productsPath")
 		response = buildResponse(200, "GET: productsPath")
+
 
 	case request.HTTPMethod == "GET" && request.Path == productPath:
 		if _, ok := request.QueryStringParameters["productId"]; ok {
@@ -69,12 +70,12 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 			if err != nil {
 				response = buildResponse(404, "Failed to find requested product: "+productId)
 			}else{
-				msg := "ID: " + product.ProductId + "\nName: " + product.Name + "\bBrand: " + product.Brand + "\nQuantity: " + strconv.Itoa(product.Quantity)
+				msg := "ID: " + product.ProductId + "\nName: " + product.Name + "\nBrand: " + product.Brand + "\nQuantity: " + strconv.Itoa(product.Quantity)
 				response = buildResponse(200, msg)
 			}
 		}else{
 			fmt.Println("Invalid Request! productId in query parameter is missing")
-			response = buildResponse(404, "Invalid Request! productId in query parameter is missing")
+			response = buildResponse(400, "Invalid Request! productId in query parameter is missing")
 		}
 		
 
@@ -96,13 +97,27 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 			response = buildResponse(200, "Product added successfully")
 		}
 
+
 	case request.HTTPMethod == "DELETE" && request.Path == productPath:
-		fmt.Println("DELETE: productPath")
-		response = buildResponse(200, "DELETE: productPath")
+		if _, ok := request.QueryStringParameters["productId"]; ok {
+			productId := request.QueryStringParameters["productId"]
+			fmt.Println("product id:", productId)
+			err := DeleteProduct(productId)
+			if err != nil {
+				response = buildResponse(400, "Failed to delete product: "+productId)
+			}else{
+				response = buildResponse(200, "Product deleted successfully: "+productId)
+			}
+		}else{
+			fmt.Println("Invalid Request! productId in query parameter is missing")
+			response = buildResponse(400, "Invalid Request! productId in query parameter is missing")
+		}
+		
 
 	case request.HTTPMethod == "PATCH" && request.Path == productPath:
 		fmt.Println("PATCH: productPath")
 		response = buildResponse(200, "PATCH: productPath")
+
 
 	default:
 		fmt.Println("Invalid Request!")
@@ -117,15 +132,38 @@ func main() {
 	lambda.Start(handler)
 }
 
-func GetProduct(productId string) (Product, error){
-	result, err := db.GetItem(&dynamodb.GetItemInput{
+func DeleteProduct(productId string) error{
+	input := &dynamodb.DeleteItemInput{
 		Key: map[string]*dynamodb.AttributeValue{
 			"productId": {
 				S: aws.String(productId),
 			},
 		},
 		TableName: aws.String(TABLE_NAME),
-	})
+	}
+
+	_, err := db.DeleteItem(input)
+
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			fmt.Println(aerr.Error())
+		}
+	}
+
+	return err
+}
+
+func GetProduct(productId string) (Product, error){
+	input := &dynamodb.GetItemInput{
+		Key: map[string]*dynamodb.AttributeValue{
+			"productId": {
+				S: aws.String(productId),
+			},
+		},
+		TableName: aws.String(TABLE_NAME),
+	}
+
+	result, err := db.GetItem(input)
 
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
@@ -140,7 +178,7 @@ func GetProduct(productId string) (Product, error){
 		return product, errors.New(msg)
 	}
 
-	fmt.Println(result.Item)
+	// fmt.Println(result.Item)
 	err = dynamodbattribute.UnmarshalMap(result.Item, &product)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to unmarshal Record, %v", err))
@@ -156,7 +194,7 @@ func GetProduct(productId string) (Product, error){
 }
 
 func SaveProduct(product Product) error {
-	_, err := db.PutItem(&dynamodb.PutItemInput{
+	input := &dynamodb.PutItemInput{
 		Item: map[string]*dynamodb.AttributeValue{
 			"productId": {
 				S: aws.String(product.ProductId),
@@ -172,7 +210,9 @@ func SaveProduct(product Product) error {
 			},
 		},
 		TableName: aws.String(TABLE_NAME),
-	})
+	}
+
+	_, err := db.PutItem(input)
 
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
