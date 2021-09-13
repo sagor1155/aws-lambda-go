@@ -53,14 +53,17 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 
 	switch true {
 	case request.HTTPMethod == "GET" && request.Path == healthPath:
-		fmt.Println("GET: healthpath")
-		response = buildResponse(200, "GET: healthpath")
+		response = buildResponse(200, "Health Check OK")
 
 
 	case request.HTTPMethod == "GET" && request.Path == productsPath:
-		fmt.Println("GET: productsPath")
-		response = buildResponse(200, "GET: productsPath")
-
+		products, err := GetProducts()
+		if err != nil {
+			response = buildResponse(400, "Failed to retrieve products!")
+		}else{
+			data, _ := json.Marshal([]Product(products))
+			response = buildResponse(200, string(data))
+		}
 
 	case request.HTTPMethod == "GET" && request.Path == productPath:
 		if _, ok := request.QueryStringParameters["productId"]; ok {
@@ -115,8 +118,22 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 		
 
 	case request.HTTPMethod == "PATCH" && request.Path == productPath:
-		fmt.Println("PATCH: productPath")
-		response = buildResponse(200, "PATCH: productPath")
+		fmt.Println(request.Body)
+		product := Product{}
+		json.Unmarshal([]byte(request.Body), &product)
+		
+		fmt.Println("Update Product:")
+		fmt.Println("ID:  ", product.ProductId)
+		fmt.Println("Name: ", product.Name)
+		fmt.Println("Brand:  ", product.Brand)
+		fmt.Println("Quantity:", product.Quantity)
+		
+		err := UpdateProduct(product)
+		if err != nil {
+			response = buildResponse(400, "Failed to update product!")
+		}else{
+			response = buildResponse(200, "Product: " + string(product.ProductId) + " updated successfully")
+		}
 
 
 	default:
@@ -130,6 +147,51 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 func main() {
 	// Make the handler available for Remote Procedure Call by AWS Lambda
 	lambda.Start(handler)
+}
+
+func UpdateProduct(product Product) error {
+    input := &dynamodb.UpdateItemInput{
+        TableName: aws.String(TABLE_NAME),
+        
+		Key: map[string]*dynamodb.AttributeValue{	// which product
+            "productId": {
+                S: aws.String(product.ProductId),
+            },
+        },
+
+        UpdateExpression:	// update expression 
+			aws.String("set #nm = :n, #br = :b, #qt = :q"),
+
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{		// update values
+            ":n": {
+                S: aws.String(product.Name),
+            },
+			":b": {
+                S: aws.String(product.Brand),
+            },
+			":q": {
+                S: aws.String(strconv.Itoa(product.Quantity)),
+            },
+        },
+
+		ExpressionAttributeNames: map[string]*string{		// update values
+            "#nm" : aws.String("Name"),
+            "#br" : aws.String("Brand"),
+            "#qt" : aws.String("Quantity"),
+        },
+
+        ReturnValues:     aws.String("UPDATED_NEW"),
+    }
+
+    _, err := db.UpdateItem(input)
+
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			fmt.Println(aerr.Error())
+		}
+	}
+
+	return err
 }
 
 func DeleteProduct(productId string) error{
@@ -151,6 +213,43 @@ func DeleteProduct(productId string) error{
 	}
 
 	return err
+}
+
+func GetProducts() ([]Product, error){
+	input := &dynamodb.ScanInput{
+		TableName: aws.String(TABLE_NAME),
+	}
+
+	result, err := db.Scan(input)
+
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			fmt.Println(aerr.Error())
+		}
+	}
+
+	products := []Product{}
+
+	for _, item := range result.Items {
+		product := Product{}
+		err = dynamodbattribute.UnmarshalMap(item, &product)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to unmarshal Record, %v", err))
+		}else{
+			products = append(products, product)
+		}
+	}
+
+	for _, product := range products {
+		fmt.Println("-----------------------------")
+		fmt.Println("ID:  ", product.ProductId)
+		fmt.Println("Name: ", product.Name)
+		fmt.Println("Brand:  ", product.Brand)
+		fmt.Println("Quantity:", product.Quantity)
+		fmt.Println("-----------------------------")
+	}
+
+	return products, nil
 }
 
 func GetProduct(productId string) (Product, error){
