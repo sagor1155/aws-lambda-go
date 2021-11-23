@@ -2,12 +2,12 @@
 package main
 
 import (
-	"os"
 	"context"
-	"fmt"
-	"strconv"
-	"errors"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -25,10 +25,10 @@ const TABLE_NAME = "product-inventory"
 var db *dynamodb.DynamoDB
 
 type Product struct {
-	ProductId string	`json:"productId,omitempty"`
-	Name      string	`json:"Name,omitempty"`
-	Quantity  int		`json:"Quantity,string,omitempty"`
-	Brand     string	`json:"Brand,omitempty"`
+	ProductId string `json:"productId,omitempty"`
+	Name      string `json:"Name,omitempty"`
+	Quantity  int    `json:"Quantity,string,omitempty"`
+	Brand     string `json:"Brand,omitempty"`
 }
 
 func init() {
@@ -39,6 +39,10 @@ func init() {
 func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// print context info
 	fmt.Println("Lambda Invoked: ", lambdacontext.FunctionName)
+
+	fmt.Println("------------------------------")
+	fmt.Println(request)
+	fmt.Println("------------------------------")
 
 	// api path
 	healthPath := "/health"
@@ -55,12 +59,11 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 	case request.HTTPMethod == "GET" && request.Path == healthPath:
 		response = buildResponse(200, "Health Check OK")
 
-
 	case request.HTTPMethod == "GET" && request.Path == productsPath:
 		products, err := GetProducts()
 		if err != nil {
 			response = buildResponse(400, "Failed to retrieve products!")
-		}else{
+		} else {
 			data, _ := json.Marshal([]Product(products))
 			response = buildResponse(200, string(data))
 		}
@@ -72,34 +75,32 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 			product, err := GetProduct(productId)
 			if err != nil {
 				response = buildResponse(404, "Failed to find requested product: "+productId)
-			}else{
+			} else {
 				msg := "ID: " + product.ProductId + "\nName: " + product.Name + "\nBrand: " + product.Brand + "\nQuantity: " + strconv.Itoa(product.Quantity)
 				response = buildResponse(200, msg)
 			}
-		}else{
+		} else {
 			fmt.Println("Invalid Request! productId in query parameter is missing")
 			response = buildResponse(400, "Invalid Request! productId in query parameter is missing")
 		}
-		
 
 	case request.HTTPMethod == "POST" && request.Path == productPath:
 		fmt.Println(request.Body)
 		product := Product{}
 		json.Unmarshal([]byte(request.Body), &product)
-		
+
 		fmt.Println("Add Product:")
 		fmt.Println("ID:  ", product.ProductId)
 		fmt.Println("Name: ", product.Name)
 		fmt.Println("Brand:  ", product.Brand)
 		fmt.Println("Quantity:", product.Quantity)
-		
+
 		err := SaveProduct(product)
 		if err != nil {
 			response = buildResponse(400, "Failed to add product!")
-		}else{
+		} else {
 			response = buildResponse(200, "Product added successfully")
 		}
-
 
 	case request.HTTPMethod == "DELETE" && request.Path == productPath:
 		if _, ok := request.QueryStringParameters["productId"]; ok {
@@ -108,33 +109,31 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 			err := DeleteProduct(productId)
 			if err != nil {
 				response = buildResponse(400, "Failed to delete product: "+productId)
-			}else{
+			} else {
 				response = buildResponse(200, "Product deleted successfully: "+productId)
 			}
-		}else{
+		} else {
 			fmt.Println("Invalid Request! productId in query parameter is missing")
 			response = buildResponse(400, "Invalid Request! productId in query parameter is missing")
 		}
-		
 
 	case request.HTTPMethod == "PATCH" && request.Path == productPath:
 		fmt.Println(request.Body)
 		product := Product{}
 		json.Unmarshal([]byte(request.Body), &product)
-		
+
 		fmt.Println("Update Product:")
 		fmt.Println("ID:  ", product.ProductId)
 		fmt.Println("Name: ", product.Name)
 		fmt.Println("Brand:  ", product.Brand)
 		fmt.Println("Quantity:", product.Quantity)
-		
+
 		err := UpdateProduct(product)
 		if err != nil {
 			response = buildResponse(400, "Failed to update product!")
-		}else{
-			response = buildResponse(200, "Product: " + string(product.ProductId) + " updated successfully")
+		} else {
+			response = buildResponse(200, "Product: "+string(product.ProductId)+" updated successfully")
 		}
-
 
 	default:
 		fmt.Println("Invalid Request!")
@@ -150,40 +149,40 @@ func main() {
 }
 
 func UpdateProduct(product Product) error {
-    input := &dynamodb.UpdateItemInput{
-        TableName: aws.String(TABLE_NAME),
-        
-		Key: map[string]*dynamodb.AttributeValue{	// which product
-            "productId": {
-                S: aws.String(product.ProductId),
-            },
-        },
+	input := &dynamodb.UpdateItemInput{
+		TableName: aws.String(TABLE_NAME),
 
-        UpdateExpression:	// update expression 
-			aws.String("set #nm = :n, #br = :b, #qt = :q"),
+		Key: map[string]*dynamodb.AttributeValue{ // which product
+			"productId": {
+				S: aws.String(product.ProductId),
+			},
+		},
 
-		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{		// update values
-            ":n": {
-                S: aws.String(product.Name),
-            },
+		UpdateExpression:// update expression
+		aws.String("set #nm = :n, #br = :b, #qt = :q"),
+
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{ // update values
+			":n": {
+				S: aws.String(product.Name),
+			},
 			":b": {
-                S: aws.String(product.Brand),
-            },
+				S: aws.String(product.Brand),
+			},
 			":q": {
-                S: aws.String(strconv.Itoa(product.Quantity)),
-            },
-        },
+				S: aws.String(strconv.Itoa(product.Quantity)),
+			},
+		},
 
-		ExpressionAttributeNames: map[string]*string{		// update values
-            "#nm" : aws.String("Name"),
-            "#br" : aws.String("Brand"),
-            "#qt" : aws.String("Quantity"),
-        },
+		ExpressionAttributeNames: map[string]*string{ // update values
+			"#nm": aws.String("Name"),
+			"#br": aws.String("Brand"),
+			"#qt": aws.String("Quantity"),
+		},
 
-        ReturnValues:     aws.String("UPDATED_NEW"),
-    }
+		ReturnValues: aws.String("UPDATED_NEW"),
+	}
 
-    _, err := db.UpdateItem(input)
+	_, err := db.UpdateItem(input)
 
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
@@ -194,7 +193,7 @@ func UpdateProduct(product Product) error {
 	return err
 }
 
-func DeleteProduct(productId string) error{
+func DeleteProduct(productId string) error {
 	input := &dynamodb.DeleteItemInput{
 		Key: map[string]*dynamodb.AttributeValue{
 			"productId": {
@@ -215,7 +214,7 @@ func DeleteProduct(productId string) error{
 	return err
 }
 
-func GetProducts() ([]Product, error){
+func GetProducts() ([]Product, error) {
 	input := &dynamodb.ScanInput{
 		TableName: aws.String(TABLE_NAME),
 	}
@@ -235,7 +234,7 @@ func GetProducts() ([]Product, error){
 		err = dynamodbattribute.UnmarshalMap(item, &product)
 		if err != nil {
 			panic(fmt.Sprintf("Failed to unmarshal Record, %v", err))
-		}else{
+		} else {
 			products = append(products, product)
 		}
 	}
@@ -252,7 +251,7 @@ func GetProducts() ([]Product, error){
 	return products, nil
 }
 
-func GetProduct(productId string) (Product, error){
+func GetProduct(productId string) (Product, error) {
 	input := &dynamodb.GetItemInput{
 		Key: map[string]*dynamodb.AttributeValue{
 			"productId": {
@@ -282,7 +281,7 @@ func GetProduct(productId string) (Product, error){
 	if err != nil {
 		panic(fmt.Sprintf("Failed to unmarshal Record, %v", err))
 	}
-	
+
 	fmt.Println("Found Product:")
 	fmt.Println("ID:  ", product.ProductId)
 	fmt.Println("Name: ", product.Name)
